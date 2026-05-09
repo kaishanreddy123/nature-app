@@ -5,45 +5,57 @@ import {
   Popup,
 } from "react-leaflet";
 
+import "leaflet/dist/leaflet.css";
+
 export default function MapView({ location, places }) {
   if (!location) return null;
 
   return (
     <MapContainer
-      center={[location.latitude, location.longitude]}
+      center={[
+        location.latitude,
+        location.longitude,
+      ]}
       zoom={13}
+      scrollWheelZoom={true}
       style={{
-        height: "500px",
+        height: "100%",
         width: "100%",
-        marginTop: "20px",
-        borderRadius: "12px",
       }}
     >
-      {/* FREE OpenStreetMap tiles */}
       <TileLayer
         attribution="&copy; OpenStreetMap contributors"
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
 
-      {/* 📍 User marker */}
-      <Marker position={[location.latitude, location.longitude]}>
-        <Popup>You are here 📍</Popup>
+      {/* USER */}
+      <Marker
+        position={[
+          location.latitude,
+          location.longitude,
+        ]}
+      >
+        <Popup>
+          You are here 📍
+        </Popup>
       </Marker>
 
-      {/* 🌿 Nature places */}
-      {places.map((place) => (
+      {/* PLACES */}
+      {places?.map((place) => (
         <Marker
           key={place.id}
           position={[place.lat, place.lng]}
         >
           <Popup>
-            <strong>{place.name}</strong>
-            <br />
-            {place.category}
-            <br />
-            👍 {place.upvotes}
-            <br />
-            👎 {place.downvotes}
+            <div>
+              <h3>{place.name}</h3>
+
+              <p>{place.category}</p>
+
+              <p>👍 {place.upvotes}</p>
+
+              <p>👎 {place.downvotes}</p>
+            </div>
           </Popup>
         </Marker>
       ))}
