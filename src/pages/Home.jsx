@@ -6,8 +6,6 @@ import {
   collection,
   addDoc,
   getDocs,
-  query,
-  where,
   doc,
   updateDoc,
 } from "firebase/firestore";
@@ -25,7 +23,7 @@ export default function Home({ user }) {
 
   const [category, setCategory] = useState("Lake");
 
-  // GET LOCATION
+  // GET USER LOCATION
   const getLocation = () => {
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -44,7 +42,9 @@ export default function Home({ user }) {
   // FETCH PLACES
   const fetchPlaces = async () => {
     try {
-      const snapshot = await getDocs(collection(db, "places"));
+      const snapshot = await getDocs(
+        collection(db, "places")
+      );
 
       const data = snapshot.docs.map((docItem) => ({
         id: docItem.id,
@@ -63,6 +63,42 @@ export default function Home({ user }) {
     fetchPlaces();
   }, []);
 
+  // DISTANCE CALCULATION
+  const getDistanceMeters = (
+    lat1,
+    lon1,
+    lat2,
+    lon2
+  ) => {
+    const R = 6371e3;
+
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+
+    const Δφ =
+      ((lat2 - lat1) * Math.PI) / 180;
+
+    const Δλ =
+      ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) *
+        Math.sin(Δφ / 2) +
+      Math.cos(φ1) *
+        Math.cos(φ2) *
+        Math.sin(Δλ / 2) *
+        Math.sin(Δλ / 2);
+
+    const c =
+      2 *
+      Math.atan2(
+        Math.sqrt(a),
+        Math.sqrt(1 - a)
+      );
+
+    return R * c;
+  };
+
   // ADD PLACE
   const handleAddPlace = async () => {
     if (!placeName) {
@@ -70,20 +106,57 @@ export default function Home({ user }) {
       return;
     }
 
+    if (!location) {
+      alert("Location not available");
+      return;
+    }
+
     try {
-      // DUPLICATE CHECK
-      const q = query(
-        collection(db, "places"),
-        where("name", "==", placeName)
+      const snapshot = await getDocs(
+        collection(db, "places")
       );
 
-      const existing = await getDocs(q);
+      const existingPlaces = snapshot.docs.map(
+        (docItem) => ({
+          id: docItem.id,
+          ...docItem.data(),
+        })
+      );
 
-      if (!existing.empty) {
+      // NAME DUPLICATE
+      const sameName = existingPlaces.some(
+        (place) =>
+          place.name.toLowerCase().trim() ===
+          placeName.toLowerCase().trim()
+      );
+
+      if (sameName) {
         alert("Location already exists");
         return;
       }
 
+      // 100 METER CHECK
+      const nearbySpotExists =
+        existingPlaces.some((place) => {
+          const distance = getDistanceMeters(
+            location.latitude,
+            location.longitude,
+            place.lat,
+            place.lng
+          );
+
+          return distance <= 100;
+        });
+
+      if (nearbySpotExists) {
+        alert(
+          "Nature spot already added nearby (within 100 meters)"
+        );
+
+        return;
+      }
+
+      // SAVE
       await addDoc(collection(db, "places"), {
         name: placeName,
         category,
@@ -91,8 +164,9 @@ export default function Home({ user }) {
         slashIts: 0,
         votedUsers: {},
         createdBy: user.uid,
-        lat: location?.latitude || 0,
-        lng: location?.longitude || 0,
+        lat: location.latitude,
+        lng: location.longitude,
+        createdAt: new Date(),
       });
 
       alert("Location added 🌿");
@@ -122,7 +196,7 @@ export default function Home({ user }) {
         return;
       }
 
-      // SWITCH FROM SLASH TO SHOUTOUT
+      // SWITCH VOTE
       if (currentVote === "slash") {
         await updateDoc(ref, {
           shoutouts: (place.shoutouts || 0) + 1,
@@ -142,7 +216,7 @@ export default function Home({ user }) {
         return;
       }
 
-      // FIRST TIME
+      // FIRST VOTE
       await updateDoc(ref, {
         shoutouts: (place.shoutouts || 0) + 1,
 
@@ -173,7 +247,7 @@ export default function Home({ user }) {
         return;
       }
 
-      // SWITCH FROM SHOUTOUT TO SLASH
+      // SWITCH VOTE
       if (currentVote === "shoutout") {
         await updateDoc(ref, {
           slashIts: (place.slashIts || 0) + 1,
@@ -193,7 +267,7 @@ export default function Home({ user }) {
         return;
       }
 
-      // FIRST TIME
+      // FIRST VOTE
       await updateDoc(ref, {
         slashIts: (place.slashIts || 0) + 1,
 
@@ -239,7 +313,9 @@ export default function Home({ user }) {
           </button>
 
           <button
-            onClick={() => setShowForm(!showForm)}
+            onClick={() =>
+              setShowForm(!showForm)
+            }
             className="bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-2xl transition"
           >
             ➕ Add Spot
@@ -284,7 +360,7 @@ export default function Home({ user }) {
           </div>
         )}
 
-        {/* LOCATIONS */}
+        {/* LOCATION LIST */}
         <div className="bg-white rounded-3xl shadow-sm p-4 mb-4">
 
           <div className="flex justify-between items-center mb-4">
