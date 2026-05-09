@@ -1,4 +1,18 @@
+// src/pages/Home.jsx
+
 import { useEffect, useState } from "react";
+
+import {
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+  doc,
+  updateDoc,
+} from "firebase/firestore";
+
+import { db } from "../firebase";
 
 export default function Home({ user }) {
   const [location, setLocation] = useState(null);
@@ -22,97 +36,178 @@ export default function Home({ user }) {
       },
       (error) => {
         console.log(error);
-
         alert("Unable to fetch location");
       }
     );
   };
 
+  // FETCH PLACES
+  const fetchPlaces = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "places"));
+
+      const data = snapshot.docs.map((docItem) => ({
+        id: docItem.id,
+        ...docItem.data(),
+      }));
+
+      setPlaces(data);
+
+    } catch (error) {
+      console.log(error);
+    }
+  };
+
   useEffect(() => {
     getLocation();
+    fetchPlaces();
   }, []);
 
   // ADD PLACE
-  const handleAddPlace = () => {
+  const handleAddPlace = async () => {
     if (!placeName) {
       alert("Enter place name");
       return;
     }
 
-    // DUPLICATE CHECK
-    const alreadyExists = places.some(
-      (place) =>
-        place.name.toLowerCase().trim() ===
-        placeName.toLowerCase().trim()
-    );
+    try {
+      // DUPLICATE CHECK
+      const q = query(
+        collection(db, "places"),
+        where("name", "==", placeName)
+      );
 
-    if (alreadyExists) {
-      alert("Location already exists");
-      return;
+      const existing = await getDocs(q);
+
+      if (!existing.empty) {
+        alert("Location already exists");
+        return;
+      }
+
+      await addDoc(collection(db, "places"), {
+        name: placeName,
+        category,
+        shoutouts: 0,
+        slashIts: 0,
+        votedUsers: {},
+        createdBy: user.uid,
+        lat: location?.latitude || 0,
+        lng: location?.longitude || 0,
+      });
+
+      alert("Location added 🌿");
+
+      setPlaceName("");
+
+      setShowForm(false);
+
+      fetchPlaces();
+
+    } catch (error) {
+      console.log(error);
     }
-
-    const newPlace = {
-      id: Date.now(),
-      name: placeName,
-      category,
-      shoutouts: 0,
-      slashIts: 0,
-      votedUsers: [],
-    };
-
-    setPlaces([newPlace, ...places]);
-
-    setPlaceName("");
-
-    setShowForm(false);
   };
 
   // SHOUTOUT
-  const handleShoutout = (id) => {
-    const updatedPlaces = places.map((place) => {
-      if (place.id === id) {
+  const handleShoutout = async (place) => {
+    try {
+      const currentVote =
+        place.votedUsers?.[user.uid];
 
-        // PREVENT MULTIPLE VOTES
-        if (place.votedUsers.includes(user.uid)) {
-          alert("You already reacted");
-          return place;
-        }
+      const ref = doc(db, "places", place.id);
 
-        return {
-          ...place,
-          shoutouts: place.shoutouts + 1,
-          votedUsers: [...place.votedUsers, user.uid],
-        };
+      // ALREADY SHOUTOUT
+      if (currentVote === "shoutout") {
+        alert("Already shouted out");
+        return;
       }
 
-      return place;
-    });
+      // SWITCH FROM SLASH TO SHOUTOUT
+      if (currentVote === "slash") {
+        await updateDoc(ref, {
+          shoutouts: (place.shoutouts || 0) + 1,
 
-    setPlaces(updatedPlaces);
+          slashIts: Math.max(
+            (place.slashIts || 0) - 1,
+            0
+          ),
+
+          votedUsers: {
+            ...place.votedUsers,
+            [user.uid]: "shoutout",
+          },
+        });
+
+        fetchPlaces();
+        return;
+      }
+
+      // FIRST TIME
+      await updateDoc(ref, {
+        shoutouts: (place.shoutouts || 0) + 1,
+
+        votedUsers: {
+          ...(place.votedUsers || {}),
+          [user.uid]: "shoutout",
+        },
+      });
+
+      fetchPlaces();
+
+    } catch (error) {
+      console.log(error);
+    }
   };
 
   // SLASH IT
-  const handleSlashIt = (id) => {
-    const updatedPlaces = places.map((place) => {
-      if (place.id === id) {
+  const handleSlashIt = async (place) => {
+    try {
+      const currentVote =
+        place.votedUsers?.[user.uid];
 
-        // PREVENT MULTIPLE VOTES
-        if (place.votedUsers.includes(user.uid)) {
-          alert("You already reacted");
-          return place;
-        }
+      const ref = doc(db, "places", place.id);
 
-        return {
-          ...place,
-          slashIts: place.slashIts + 1,
-          votedUsers: [...place.votedUsers, user.uid],
-        };
+      // ALREADY SLASHED
+      if (currentVote === "slash") {
+        alert("Already slashed");
+        return;
       }
 
-      return place;
-    });
+      // SWITCH FROM SHOUTOUT TO SLASH
+      if (currentVote === "shoutout") {
+        await updateDoc(ref, {
+          slashIts: (place.slashIts || 0) + 1,
 
-    setPlaces(updatedPlaces);
+          shoutouts: Math.max(
+            (place.shoutouts || 0) - 1,
+            0
+          ),
+
+          votedUsers: {
+            ...place.votedUsers,
+            [user.uid]: "slash",
+          },
+        });
+
+        fetchPlaces();
+        return;
+      }
+
+      // FIRST TIME
+      await updateDoc(ref, {
+        slashIts: (place.slashIts || 0) + 1,
+
+        votedUsers: {
+          ...(place.votedUsers || {}),
+          [user.uid]: "slash",
+        },
+      });
+
+      fetchPlaces();
+
+    } catch (error) {
+      console.log(error);
+    }
   };
 
   return (
@@ -133,19 +228,19 @@ export default function Home({ user }) {
 
         </div>
 
-        {/* TOP BUTTONS */}
+        {/* BUTTONS */}
         <div className="grid grid-cols-2 gap-3 mb-4">
 
           <button
             onClick={getLocation}
-            className="bg-green-600 hover:bg-green-700 text-white py-3 rounded-2xl font-medium transition"
+            className="bg-green-600 hover:bg-green-700 text-white py-3 rounded-2xl transition"
           >
             📍 Location
           </button>
 
           <button
             onClick={() => setShowForm(!showForm)}
-            className="bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-2xl font-medium transition"
+            className="bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-2xl transition"
           >
             ➕ Add Spot
           </button>
@@ -156,22 +251,22 @@ export default function Home({ user }) {
         {showForm && (
           <div className="bg-white rounded-3xl shadow-sm p-4 mb-4">
 
-            <h2 className="font-bold text-lg mb-4 text-gray-700">
-              Add Nature Spot
-            </h2>
-
             <input
               type="text"
               placeholder="Place Name"
               value={placeName}
-              onChange={(e) => setPlaceName(e.target.value)}
-              className="w-full border border-gray-200 rounded-2xl p-3 mb-3 focus:outline-none"
+              onChange={(e) =>
+                setPlaceName(e.target.value)
+              }
+              className="w-full border border-gray-200 rounded-2xl p-3 mb-3"
             />
 
             <select
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full border border-gray-200 rounded-2xl p-3 mb-4 focus:outline-none"
+              onChange={(e) =>
+                setCategory(e.target.value)
+              }
+              className="w-full border border-gray-200 rounded-2xl p-3 mb-3"
             >
               <option>Lake</option>
               <option>Park</option>
@@ -181,7 +276,7 @@ export default function Home({ user }) {
 
             <button
               onClick={handleAddPlace}
-              className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-2xl transition"
+              className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-2xl"
             >
               Save Spot 🌿
             </button>
@@ -189,7 +284,7 @@ export default function Home({ user }) {
           </div>
         )}
 
-        {/* LOCATION LIST */}
+        {/* LOCATIONS */}
         <div className="bg-white rounded-3xl shadow-sm p-4 mb-4">
 
           <div className="flex justify-between items-center mb-4">
@@ -205,8 +300,8 @@ export default function Home({ user }) {
           </div>
 
           {places.length === 0 ? (
-            <div className="text-gray-500 text-sm">
-              No nearby places found
+            <div className="text-gray-500">
+              No locations added yet
             </div>
           ) : (
             <div className="space-y-3 max-h-[350px] overflow-y-auto">
@@ -217,7 +312,7 @@ export default function Home({ user }) {
                   className="border border-gray-100 rounded-3xl p-4 bg-white"
                 >
 
-                  <div className="flex justify-between items-start">
+                  <div className="flex justify-between">
 
                     <div>
                       <h3 className="font-bold text-green-700 text-lg">
@@ -229,14 +324,14 @@ export default function Home({ user }) {
                       </p>
                     </div>
 
-                    <div className="text-sm text-right">
+                    <div className="text-right text-sm">
 
                       <div className="text-yellow-600 font-semibold">
-                        🌟 {place.shoutouts}
+                        🌟 {place.shoutouts || 0}
                       </div>
 
                       <div className="text-red-500 font-semibold">
-                        🚫 {place.slashIts}
+                        🚫 {place.slashIts || 0}
                       </div>
 
                     </div>
@@ -247,15 +342,19 @@ export default function Home({ user }) {
                   <div className="grid grid-cols-2 gap-2 mt-4">
 
                     <button
-                      onClick={() => handleShoutout(place.id)}
-                      className="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 py-3 rounded-2xl transition font-medium"
+                      onClick={() =>
+                        handleShoutout(place)
+                      }
+                      className="bg-yellow-100 hover:bg-yellow-200 text-yellow-700 py-3 rounded-2xl font-medium"
                     >
                       🌟 Shoutout
                     </button>
 
                     <button
-                      onClick={() => handleSlashIt(place.id)}
-                      className="bg-red-100 hover:bg-red-200 text-red-700 py-3 rounded-2xl transition font-medium"
+                      onClick={() =>
+                        handleSlashIt(place)
+                      }
+                      className="bg-red-100 hover:bg-red-200 text-red-700 py-3 rounded-2xl font-medium"
                     >
                       🚫 Slash It
                     </button>
@@ -270,7 +369,7 @@ export default function Home({ user }) {
 
         </div>
 
-        {/* MAP VIEW */}
+        {/* MAP */}
         <div className="bg-white rounded-3xl shadow-sm p-2">
 
           <div className="h-[400px] md:h-[600px] rounded-2xl overflow-hidden">
@@ -299,7 +398,7 @@ export default function Home({ user }) {
               ></iframe>
             ) : (
               <div className="h-full flex items-center justify-center text-gray-500">
-                Fetching your location...
+                Fetching location...
               </div>
             )}
 
